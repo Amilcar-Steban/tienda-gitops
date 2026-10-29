@@ -1,0 +1,20 @@
+# Valores de la tienda en prod. Promover una versión = cambiar las etiquetas de abajo en un PR.
+imagen:
+  registro: ghcr.io/amilcar-steban
+api:
+  etiqueta: "0.2.0"
+  replicas: 3
+  hpa:
+    enabled: false # las réplicas las gestiona el Rollout (manifiestos/rollout.yaml)
+  bd:
+    host: postgres
+    sslmode: disable
+  redisUrl: redis://valkey:6379/0
+frontend:
+  etiqueta: "0.2.0"
+  replicas: 2
+gateway:
+  crear: true
+  hostname: tienda.localhost
+local:
+  enabled: true # laboratorio en kind: PostgreSQL y Valkey en el clúster (en EKS, RDS y ElastiCache)

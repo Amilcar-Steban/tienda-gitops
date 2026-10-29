@@ -1,0 +1,71 @@
+# Copia este archivo a .github/workflows/promover.yml del repositorio de CÓDIGO (tienda-pipeline)
+# y llámalo desde image.yml, después del job imagen (como deploy.yml en la Fase 2):
+#
+#   promover:
+#     needs: imagen
+#     if: github.ref == 'refs/heads/main' && vars.GITOPS_APP_ID != ''
+#     permissions: { contents: read }
+#     uses: ./.github/workflows/promover.yml
+#     secrets:
+#       GITOPS_APP_KEY: ${{ secrets.GITOPS_APP_KEY }}
+#
+# Apunta dev a la imagen nueva con un commit en el repo GitOps y abre un PR para prod. El CI solo puede escribir en ese repositorio: nada de credenciales
+# del clúster. Necesita una GitHub App instalada SOLO en tienda-gitops (contents y pull-requests de
+# escritura) con su ID en la variable GITOPS_APP_ID y su clave privada en el secreto GITOPS_APP_KEY.
+name: Promover
+
+on:
+  workflow_call:
+    secrets:
+      GITOPS_APP_KEY:
+        required: true
+
+permissions: {}
+
+jobs:
+  promover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - id: token
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          app-id: ${{ vars.GITOPS_APP_ID }}
+          private-key: ${{ secrets.GITOPS_APP_KEY }}
+          repositories: tienda-gitops
+          # Solo lo necesario, aunque la App tenga más permisos en su instalación
+          permission-contents: write
+          permission-pull-requests: write
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/tienda-gitops
+          token: ${{ steps.token.outputs.token }}
+          path: gitops
+          persist-credentials: true # este job sí necesita hacer push con el token de la App
+
+      - name: dev → imagen nueva (commit directo) y PR para prod
+        working-directory: gitops
+        env:
+          GH_TOKEN: ${{ steps.token.outputs.token }}
+          SHA: ${{ github.sha }}
+        run: |
+          etiqueta="sha-${SHA:0:7}" # la que publica docker/metadata-action en el workflow Imagen
+          git config user.name "tienda-gitops-bot"
+          git config user.email "tienda-gitops-bot@users.noreply.github.com"
+          poner() { sed -i -E "s/^(  etiqueta: ).*/\1\"$etiqueta\"/" "apps/tienda/$1/values.yaml"; }
+
+          poner dev
+          git commit -am "tienda dev → $etiqueta" && git push origin HEAD:main
+
+          git switch -c "promover-$etiqueta"
+          poner prod
+          git commit -am "tienda prod → $etiqueta"
+          git push -u origin HEAD
+          gh pr create --title "Promover la tienda $etiqueta a prod" \
+            --body "Desplegada en dev por el commit ${SHA}. Revisa dev antes de aprobar."

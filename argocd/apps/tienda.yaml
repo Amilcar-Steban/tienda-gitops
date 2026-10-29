@@ -1,0 +1,54 @@
+# Una Application por carpeta de apps/tienda/ (dev, prod…). Añadir un entorno = crear su carpeta.
+# Cada una combina dos fuentes:
+#   1. el chart de Helm del repositorio de código (Fase 5), en la versión fijada en targetRevision
+#   2. este repositorio: values.yaml del entorno ($values) y manifiestos/ (Rollout, análisis…)
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: tienda
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "1" }
+spec:
+  goTemplate: true
+  goTemplateOptions: ["missingkey=error"]
+  generators:
+    - git:
+        repoURL: https://github.com/Amilcar-Steban/tienda-gitops
+        revision: main
+        directories:
+          - path: apps/tienda/*
+  template:
+    metadata:
+      name: "tienda-{{ .path.basename }}"
+      finalizers: [resources-finalizer.argocd.argoproj.io]
+    spec:
+      project: tienda
+      sources:
+        - repoURL: https://github.com/Amilcar-Steban/tienda-pipeline
+          targetRevision: main # en serio: fija una etiqueta del repo (v0.3.0) y promuévela igual que la imagen
+          path: chart/tienda
+          helm:
+            releaseName: tienda
+            valueFiles: ["$values/{{ .path.path }}/values.yaml"]
+        - repoURL: https://github.com/Amilcar-Steban/tienda-gitops
+          targetRevision: main
+          ref: values
+          path: "{{ .path.path }}/manifiestos"
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: "tienda-{{ .path.basename }}"
+      syncPolicy:
+        automated: { prune: true, selfHeal: true }
+        syncOptions:
+          - CreateNamespace=true
+          - RespectIgnoreDifferences=true
+        managedNamespaceMetadata:
+          labels: # Pod Security "restricted" en el namespace que crea Argo CD
+            pod-security.kubernetes.io/enforce: restricted
+            pod-security.kubernetes.io/warn: restricted
+      # Argo Rollouts escala a 0 el Deployment del chart (workloadRef): que Argo CD no lo devuelva
+      ignoreDifferences:
+        - group: apps
+          kind: Deployment
+          name: tienda-api
+          jsonPointers: [/spec/replicas]

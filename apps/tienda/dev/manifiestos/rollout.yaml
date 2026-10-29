@@ -1,0 +1,36 @@
+# Canary de la API sin tocar el chart: el Rollout toma la plantilla del Deployment (workloadRef)
+# y lo escala a 0 cuando sus propios pods están listos. Reparto por número de réplicas: el
+# Service tienda-api envía tráfico a pods estables y canary en proporción.
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: tienda-api
+spec:
+  replicas: 2
+  revisionHistoryLimit: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tienda
+      app.kubernetes.io/instance: tienda
+      app.kubernetes.io/component: api
+  workloadRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: tienda-api
+    scaleDown: progressively
+  progressDeadlineSeconds: 300
+  progressDeadlineAbort: true # una versión que no arranca en 5 min se aborta sola
+  strategy:
+    canary:
+      canaryService: tienda-api-canary # solo los pods nuevos: lo que mide el análisis
+      analysis: # en segundo plano durante todo el canary
+        templates: [{ templateName: tienda-api-salud }]
+        startingStep: 1
+        args:
+          - name: namespace
+            valueFrom: { fieldRef: { fieldPath: metadata.namespace } }
+      steps:
+        - setWeight: 34
+        - pause: { duration: 30s }
+        - setWeight: 67
+        - pause: { duration: 30s }

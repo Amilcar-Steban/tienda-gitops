@@ -1,0 +1,44 @@
+# Límites por equipo. Se crean antes que todo lo demás (ola -1).
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: plataforma
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "-1" }
+spec:
+  description: Componentes compartidos del clúster (equipo de plataforma)
+  sourceRepos:
+    - https://github.com/Amilcar-Steban/tienda-gitops
+    - docker.io/envoyproxy
+    - https://kubernetes-sigs.github.io/metrics-server/
+    - https://argoproj.github.io/argo-helm
+  destinations:
+    - { server: https://kubernetes.default.svc, namespace: "*" }
+  clusterResourceWhitelist:
+    - { group: "*", kind: "*" } # plataforma sí instala CRDs, ClusterRoles…
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: tienda
+  namespace: argocd
+  annotations: { argocd.argoproj.io/sync-wave: "-1" }
+spec:
+  description: La tienda (equipo de producto)
+  sourceRepos:
+    - https://github.com/Amilcar-Steban/tienda-gitops
+    - https://github.com/Amilcar-Steban/tienda-pipeline # el chart de Helm (Fase 5)
+  destinations:
+    - { server: https://kubernetes.default.svc, namespace: "tienda-*" }
+  clusterResourceWhitelist:
+    - { group: "", kind: Namespace } # solo crear sus propios namespaces
+  namespaceResourceBlacklist:
+    - { group: "", kind: ResourceQuota } # ni tocar sus cuotas
+    - { group: "", kind: LimitRange }
+  syncWindows:
+    - kind: deny # nada de despliegues a prod el viernes por la tarde…
+      schedule: "0 15 * * 5"
+      duration: 63h
+      applications: ["tienda-prod"]
+      manualSync: true # …salvo a mano, en una emergencia
+      timeZone: Europe/Madrid

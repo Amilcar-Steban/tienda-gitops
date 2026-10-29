@@ -1,0 +1,19 @@
+# La "app de apps": lo único que se aplica a mano (bootstrap/instalar-argocd.sh lo hace).
+# Todo lo demás (proyectos, plataforma y la tienda) lo crea Argo CD a partir de argocd/apps/.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: root
+  namespace: argocd
+  finalizers: [resources-finalizer.argocd.argoproj.io]
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/Amilcar-Steban/tienda-gitops
+    targetRevision: main
+    path: argocd/apps
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: argocd
+  syncPolicy:
+    automated: { prune: true, selfHeal: true }

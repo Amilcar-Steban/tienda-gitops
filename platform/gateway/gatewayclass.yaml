@@ -1,0 +1,26 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: GatewayClass
+metadata:
+  name: eg
+spec:
+  controllerName: gateway.envoyproxy.io/gatewayclass-controller
+  parametersRef: # quítalo en EKS: allí el Service LoadBalancer crea un NLB real
+    group: gateway.envoyproxy.io
+    kind: EnvoyProxy
+    name: kind
+    namespace: envoy-gateway-system
+---
+# En kind no hay balanceadores: un Service LoadBalancer se queda en <pending>, el Gateway nunca
+# pasa a Programmed y Argo CD muestra la tienda en Progressing para siempre. Con ClusterIP, el
+# Gateway recibe esa dirección y se llega a él con port-forward.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: kind
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyService:
+        type: ClusterIP

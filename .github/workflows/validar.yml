@@ -1,0 +1,68 @@
+# Cada PR al repositorio GitOps se valida antes de que Argo CD lo aplique: el repo es ahora la
+# llave del clúster. Renderiza cada entorno con el chart real y comprueba esquemas y buenas prácticas.
+name: Validar
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: validar-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  validar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: El chart de la tienda (repositorio de código)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ github.repository_owner }}/tienda-pipeline
+          path: codigo
+          persist-credentials: false
+
+      - uses: azure/setup-helm@9bc31f4ebc9c6b171d7bfbaa5d006ae7abdb4310 # v5.0.1
+        with:
+          version: v4.3.1
+
+      - name: Renderizar cada entorno como lo haría Argo CD
+        run: |
+          mkdir -p render
+          for dir in apps/tienda/*/; do
+            env="$(basename "$dir")"
+            helm template tienda codigo/chart/tienda -n "tienda-$env" -f "$dir/values.yaml" > "render/$env.yaml"
+            for f in "$dir"manifiestos/*.yaml; do
+              printf -- '---\n' >> "render/$env.yaml" # separador: cada archivo es un documento más
+              cat "$f" >> "render/$env.yaml"
+            done
+          done
+          cp argocd/root.yaml argocd/apps/*.yaml platform/gateway/*.yaml render/
+
+      - name: kubeconform (Kubernetes 1.37 y CRDs de Argo y Gateway API)
+        run: |
+          docker run --rm -v "$PWD/render":/render ghcr.io/yannh/kubeconform:v0.8.0 \
+            -strict -summary -kubernetes-version 1.37.0 \
+            -schema-location default \
+            -schema-location 'https://raw.githubusercontent.com/datreeio/CRDs-catalog/main/{{.Group}}/{{.ResourceKind}}_{{.ResourceAPIVersion}}.json' \
+            /render
+
+      - name: Las etiquetas de imagen están fijadas (nunca latest)
+        run: |
+          if grep -rnE 'etiqueta: *"?(latest)?"?$' apps/; then
+            echo "::error::Cada entorno debe fijar una etiqueta de imagen exacta"
+            exit 1
+          fi

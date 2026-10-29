@@ -1,0 +1,51 @@
+# Mientras dura el canary, cada 10 s pregunta a los pods nuevos (y solo a ellos) por /health.
+# Dos fallos → Argo Rollouts aborta y devuelve todo el tráfico a la versión estable.
+# Con Prometheus (Fase 7) sustitúyelo por la tasa de errores 5xx y la latencia p95.
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: tienda-api-salud
+spec:
+  args: [{ name: namespace }]
+  metrics:
+    - name: salud-canary
+      interval: 10s
+      count: 12
+      failureLimit: 2
+      successCondition: result == "ok"
+      provider:
+        web:
+          url: "http://tienda-api-canary.{{args.namespace}}.svc/health" # lo llama el controlador, desde otro namespace
+          timeoutSeconds: 3
+          jsonPath: "{$.status}"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tienda-api-canary
+spec:
+  selector: # Argo Rollouts añade el hash de la versión canary a este selector
+    app.kubernetes.io/name: tienda
+    app.kubernetes.io/instance: tienda
+    app.kubernetes.io/component: api
+  ports:
+    - { name: http, port: 80, targetPort: http }
+---
+# Las NetworkPolicies del chart solo dejan entrar a los proxies del Gateway: el análisis lo
+# hace el controlador de Argo Rollouts, que también necesita llegar a la API.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: tienda-api-desde-rollouts
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/instance: tienda
+      app.kubernetes.io/component: api
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: argo-rollouts }
+      ports:
+        - { port: 8000, protocol: TCP }
