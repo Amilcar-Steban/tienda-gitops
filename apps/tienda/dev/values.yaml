@@ -2,7 +2,7 @@
 imagen:
   registro: ghcr.io/amilcar-steban
 api:
-  etiqueta: "sha-dc97c3d"
+  etiqueta: "sha-a41532b"
   replicas: 2
   hpa:
     enabled: false # las réplicas las gestiona el Rollout (manifiestos/rollout.yaml)
@@ -11,7 +11,7 @@ api:
     sslmode: disable
   redisUrl: redis://valkey:6379/0
 frontend:
-  etiqueta: "sha-dc97c3d"
+  etiqueta: "sha-a41532b"
   replicas: 2
 gateway:
   crear: true
